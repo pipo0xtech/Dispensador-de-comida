@@ -1,0 +1,127 @@
+## 1. Diagrama de Conexión (Pinout)
+Al no usar el adaptador I2C para la pantalla, conectaremos el LCD 16x2 en **modo de 4 bits**.
+### Pantalla LCD 16x2 (Directa)
+ * **VSS / K (Cátodo):** GND
+ * **VDD / A (Ánodo):** 5V *(A través de una resistencia de 220Ω en A para el retroiluminado)*
+ * **V0 (Contraste):** Pin central de un potenciómetro de 10k (extremos a 5V y GND) o a GND con una resistencia de 1k.
+ * **RS:** Pin **D12** del Nano
+ * **Enable (E):** Pin **D11** del Nano
+ * **D4:** Pin **D5** del Nano
+ * **D5:** Pin **D4** del Nano
+ * **D6:** Pin **D3** del Nano
+ * **D7:** Pin **D2** del Nano
+ * **RW:** GND
+### Módulo RTC DS1302
+ * **VCC:** 5V
+ * **GND:** GND
+ * **CLK:** Pin **D6** del Nano
+ * **DAT / DIO:** Pin **D7** del Nano
+ * **RST / CE:** Pin **D8** del Nano
+### Pulsadores (Uso de pulsadores a GND con INPUT_PULLUP)
+ * **Boton 1 (CONFIG/MENU):** Pin **D9** a un lado del pulsador; el otro lado a GND.
+ * **Boton 2 (INCREMENTAR/+):** Pin **D10** a un lado del pulsador; el otro lado a GND.
+### Mecanismo de Alimentos (Servo o Relevador)
+ * **Señal Servomotor / Relevador:** Pin **A1** (o **D13**) del Nano.
+## 2. Código Arduino Base
+Este código lee la hora actual del DS1302, muestra la información en la pantalla LCD sin I2C y compara la hora del sistema con la hora de comida programada.
+Librerías requeridas en el IDE de Arduino:
+ * LiquidCrystal *(ya viene instalada por defecto)*
+ * virtuabotixRTC o DS1302 *(instalar desde el Gestor de Librerías buscando "virtuabotixRTC")*
+```cpp
+#include <LiquidCrystal.h>
+#include <virtuabotixRTC.h>
+#include <Servo.h>
+
+// Pines Pantalla LCD (RS, E, D4, D5, D6, D7)
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+
+// Pines RTC DS1302 (CLK, DAT, RST)
+virtuabotixRTC myRTC(6, 7, 8);
+
+// Servo para la compuerta del dispensador
+Servo servomotor;
+const int pinServo = A1;
+
+// Pines Pulsadores
+const int btnMenu = 9;
+const int btnPlus = 10;
+
+// Variables de horario programado (Ejemplo: 08:00 AM)
+int horaComida = 8;
+int minComida = 0;
+bool servidoHoy = false;
+
+// Estado del menú de configuración
+int modoMenu = 0; // 0: Normal, 1: Ajustar Hora Comida, 2: Ajustar Minuto Comida
+
+void setup() {
+  lcd.begin(16, 2);
+  
+  pinMode(btnMenu, INPUT_PULLUP);
+  pinMode(btnPlus, INPUT_PULLUP);
+  
+  servomotor.attach(pinServo);
+  servomotor.write(0); // Compuerta cerrada
+
+  // Descomentar la siguiente línea SOLO UNA VEZ para configurar la hora inicial del RTC:
+  // myRTC.setDS1302Time(00, 30, 10, 3, 29, 7, 2026); // (seg, min, hora, diaSemana, dia, mes, año)
+}
+
+void loop() {
+  myRTC.updateTime();
+
+  // Gestión de pulsadores
+  if (digitalRead(btnMenu) == LOW) {
+    delay(200); // Debounce
+    modoMenu++;
+    if (modoMenu > 2) modoMenu = 0;
+    lcd.clear();
+  }
+
+  if (digitalRead(btnPlus) == LOW) {
+    delay(200); // Debounce
+    if (modoMenu == 1) {
+      horaComida = (horaComida + 1) % 24;
+    } else if (modoMenu == 2) {
+      minComida = (minComida + 5) % 60;
+    }
+  }
+
+  // Pantalla según el modo
+  if (modoMenu == 0) {
+    // Pantalla Principal: Muestra Hora Actual y Hora de Alimentación
+    lcd.setCursor(0, 0);
+    lcd.print("Hora: ");
+    imprimirDosDigitos(myRTC.hours);
+    lcd.print(":");
+    imprimirDosDigitos(myRTC.minutes);
+    lcd.print(":");
+    imprimirDosDigitos(myRTC.seconds);
+
+    lcd.setCursor(0, 1);
+    lcd.print("Racion: ");
+    imprimirDosDigitos(horaComida);
+    lcd.print(":");
+    imprimirDosDigitos(minComida);
+
+    // Lógica de dispensación
+    if (myRTC.hours == horaComida && myRTC.minutes == minComida && !servidoHoy) {
+      dispensarComida();
+      servidoHoy = true;
+    }
+
+    // Reinicia el flag al pasar al siguiente minuto
+    if (myRTC.minutes != minComida) {
+      servidoHoy = false;
+    }
+
+  } else if (modoMenu == 1) {
+    lcd.setCursor(0, 0);
+    lcd.print(" Config. Racion ");
+    lcd.setCursor(0, 1);
+    lcd.print("> Hora: ");
+    imprimirDosDigitos(horaComida);
+  } else if (modoMenu == 2) {
+    lcd.setCursor(0, 0);
+    lcd.print(" Config. Racion ");
+    lcd.setC
