@@ -1,0 +1,138 @@
+#include <LiquidCrystal.h>
+#include <virtuabotixRTC.h>
+#include <Servo.h>
+
+// Pines Pantalla LCD (RS, E, D4, D5, D6, D7)
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+
+// Pines RTC DS1302 (CLK, DAT, RST)
+virtuabotixRTC myRTC(6, 7, 8);
+
+// Servo para la compuerta del dispensador
+Servo servomotor;
+const int pinServo = A1;
+
+// Pines Pulsadores
+const int btnMenu = 9;
+const int btnPlus = 10;
+
+// Variables de horario programado (Ejemplo por defecto: 08:00 AM)
+int horaComida = 8;
+int minComida = 0;
+bool servidoHoy = false;
+
+// Estado del menú de configuración
+int modoMenu = 0; // 0: Normal, 1: Ajustar Hora Comida, 2: Ajustar Minuto Comida
+
+// Función aux para imprimir números con formato 2 dígitos (ej: 08 en vez de 8)
+void imprimirDosDigitos(int numero) {
+  if (numero < 10) {
+    lcd.print("0");
+  }
+  lcd.print(numero);
+}
+
+// Función encargada de abrir la compuerta, esperar y cerrar
+void dispensarComida() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(" Serviendo... ");
+  
+  servomotor.attach(pinServo);
+  servomotor.write(90); // Abre compuerta (ajustar ángulo según mecanismo)
+  delay(2000);          // Mantiene abierta por 2 segundos
+  servomotor.write(0);  // Cierra compuerta
+  delay(500);           // Tiempo para asegurar el retorno
+  servomotor.detach();  // Desconecta para evitar zumbidos y ahorrar energía
+  
+  lcd.clear();
+}
+
+void setup() {
+  lcd.begin(16, 2);
+  
+  pinMode(btnMenu, INPUT_PULLUP);
+  pinMode(btnPlus, INPUT_PULLUP);
+
+  // Posición inicial de seguridad para el servo
+  servomotor.attach(pinServo);
+  servomotor.write(0); 
+  delay(300);
+  servomotor.detach();
+
+  // Descomentar la siguiente línea SOLO UNA VEZ para configurar la hora inicial del RTC:
+  // myRTC.setDS1302Time(00, 30, 10, 3, 29, 7, 2026); // (seg, min, hora, diaSemana, dia, mes, año)
+}
+
+void loop() {
+  myRTC.updateTime();
+
+  // Lectura de botón Menú (Navegación)
+  if (digitalRead(btnMenu) == LOW) {
+    delay(200); // Anti-rebote básico
+    modoMenu++;
+    if (modoMenu > 2) {
+      modoMenu = 0;
+    }
+    lcd.clear(); // Limpia la pantalla al cambiar de modo
+  }
+
+  // Lectura de botón Incrementar (+)
+  if (digitalRead(btnPlus) == LOW) {
+    delay(200); // Anti-rebote básico
+    if (modoMenu == 1) {
+      horaComida = (horaComida + 1) % 24;
+    } else if (modoMenu == 2) {
+      minComida = (minComida + 5) % 60; // Incrementar de 5 en 5 min
+    }
+  }
+
+  // Renderizado en pantalla según el modo seleccionado
+  if (modoMenu == 0) {
+    // Modo 0: Estado Principal
+    lcd.setCursor(0, 0);
+    lcd.print("Hora: ");
+    imprimirDosDigitos(myRTC.hours);
+    lcd.print(":");
+    imprimirDosDigitos(myRTC.minutes);
+    lcd.print(":");
+    imprimirDosDigitos(myRTC.seconds);
+
+    lcd.setCursor(0, 1);
+    lcd.print("Racion: ");
+    imprimirDosDigitos(horaComida);
+    lcd.print(":");
+    imprimirDosDigitos(minComida);
+
+    // Activación del mecanismo al llegar a la hora de comida
+    if (myRTC.hours == horaComida && myRTC.minutes == minComida && !servidoHoy) {
+      dispensarComida();
+      servidoHoy = true;
+    }
+
+    // Reinicia la bandera para la siguiente activación
+    if (myRTC.minutes != minComida) {
+      servidoHoy = false;
+    }
+
+  } else if (modoMenu == 1) {
+    // Modo 1: Ajuste de Hora
+    lcd.setCursor(0, 0);
+    lcd.print(" Config. Racion ");
+    lcd.setCursor(0, 1);
+    lcd.print("> Hora: ");
+    imprimirDosDigitos(horaComida);
+    lcd.print(" h   ");
+
+  } else if (modoMenu == 2) {
+    // Modo 2: Ajuste de Minuto
+    lcd.setCursor(0, 0);
+    lcd.print(" Config. Racion ");
+    lcd.setCursor(0, 1);
+    lcd.print("> Min:  ");
+    imprimirDosDigitos(minComida);
+    lcd.print(" m   ");
+  }
+
+  delay(50); // Breve pausa para refresco estable
+}
