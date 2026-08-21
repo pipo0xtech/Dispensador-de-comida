@@ -1,0 +1,200 @@
+#include <LiquidCrystal.h>
+#include <virtuabotixRTC.h>
+#include <Servo.h>
+
+// Pines Pantalla LCD (RS, E, D4, D5, D6, D7)
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+
+// Pines RTC DS1302 (CLK, DAT, RST) -> RST en pin A0
+virtuabotixRTC myRTC(6, 7, A0);
+
+// Servo para la compuerta
+Servo servomotor;
+const int pinServo = A1;
+
+// Pines de los 4 Pulsadores
+const int btnMenu   = 9;  // Cambiar modo de menú
+const int btnPlus   = 10; // Incrementar (+)
+const int btnMinus  = 8;  // Decrementar (-)
+const int btnManual = A2; // Dispensar manualmente
+
+// Arrays para los 3 horarios de comida (0: Desayuno, 1: Almuerzo, 2: Cena)
+int horasComida[3]   = {8, 14, 20}; 
+int minsComida[3]    = {0, 0, 0};
+bool servidoHoy[3]   = {false, false, false};
+
+// Estados del Menú:
+// 0: Principal (Reloj + Próxima ración)
+// 1: Horario Desayuno (Hora)    | 2: Horario Desayuno (Minuto)
+// 3: Horario Almuerzo (Hora)    | 4: Horario Almuerzo (Minuto)
+// 5: Horario Cena (Hora)        | 6: Horario Cena (Minuto)
+// 7: Ajustar Reloj Real (Hora)  | 8: Ajustar Reloj Real (Minuto)
+int modoMenu = 0; 
+
+void imprimirDosDigitos(int numero) {
+  if (numero < 10) lcd.print("0");
+  lcd.print(numero);
+}
+
+void dispensarComida(const char* nombreComida) {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("  Dispensando   ");
+  lcd.setCursor(0, 1);
+  lcd.print(" ");
+  lcd.print(nombreComida);
+  lcd.print("... ");
+  
+  servomotor.attach(pinServo);
+  servomotor.write(90); // Abre compuerta
+  delay(2000);          // Mantiene abierta 2 segundos
+  servomotor.write(0);  // Cierra compuerta
+  delay(500);           
+  servomotor.detach();  // Evita zumbidos y sobrecalentamiento
+  
+  lcd.clear();
+}
+
+void setup() {
+  lcd.begin(16, 2);
+  
+  pinMode(btnMenu, INPUT_PULLUP);
+  pinMode(btnPlus, INPUT_PULLUP);
+  pinMode(btnMinus, INPUT_PULLUP);
+  pinMode(btnManual, INPUT_PULLUP);
+
+  // Inicializar posición del servo
+  servomotor.attach(pinServo);
+  servomotor.write(0); 
+  delay(300);
+  servomotor.detach();
+}
+
+void loop() {
+  myRTC.updateTime();
+
+  // --- BOTÓN 1: CAMBIAR MODOS DE MENÚ ---
+  if (digitalRead(btnMenu) == LOW) {
+    delay(200); // Anti-rebote
+    modoMenu++;
+    if (modoMenu > 8) modoMenu = 0;
+    lcd.clear();
+  }
+
+  // --- BOTÓN 2: INCREMENTAR (+) ---
+  if (digitalRead(btnPlus) == LOW) {
+    delay(200);
+    switch (modoMenu) {
+      case 1: horasComida[0] = (horasComida[0] + 1) % 24; break; // Desayuno Hora
+      case 2: minsComida[0]  = (minsComida[0] + 1) % 60;  break; // Desayuno Min
+      case 3: horasComida[1] = (horasComida[1] + 1) % 24; break; // Almuerzo Hora
+      case 4: minsComida[1]  = (minsComida[1] + 1) % 60;  break; // Almuerzo Min
+      case 5: horasComida[2] = (horasComida[2] + 1) % 24; break; // Cena Hora
+      case 6: minsComida[2]  = (minsComida[2] + 1) % 60;  break; // Cena Min
+      case 7: // Hora Reloj
+        {
+          int h = (myRTC.hours + 1) % 24;
+          myRTC.setDS1302Time(myRTC.seconds, myRTC.minutes, h, myRTC.dayofweek, myRTC.dayofmonth, myRTC.month, myRTC.year);
+        }
+        break;
+      case 8: // Minuto Reloj
+        {
+          int m = (myRTC.minutes + 1) % 60;
+          myRTC.setDS1302Time(0, m, myRTC.hours, myRTC.dayofweek, myRTC.dayofmonth, myRTC.month, myRTC.year);
+        }
+        break;
+    }
+  }
+
+  // --- BOTÓN 3: DECREMENTAR (-) ---
+  if (digitalRead(btnMinus) == LOW) {
+    delay(200);
+    switch (modoMenu) {
+      case 1: horasComida[0] = (horasComida[0] - 1 + 24) % 24; break;
+      case 2: minsComida[0]  = (minsComida[0] - 1 + 60) % 60;  break;
+      case 3: horasComida[1] = (horasComida[1] - 1 + 24) % 24; break;
+      case 4: minsComida[1]  = (minsComida[1] - 1 + 60) % 60;  break;
+      case 5: horasComida[2] = (horasComida[2] - 1 + 24) % 24; break;
+      case 6: minsComida[2]  = (minsComida[2] - 1 + 60) % 60;  break;
+      case 7: // Hora Reloj
+        {
+          int h = (myRTC.hours - 1 + 24) % 24;
+          myRTC.setDS1302Time(myRTC.seconds, myRTC.minutes, h, myRTC.dayofweek, myRTC.dayofmonth, myRTC.month, myRTC.year);
+        }
+        break;
+      case 8: // Minuto Reloj
+        {
+          int m = (myRTC.minutes - 1 + 60) % 60;
+          myRTC.setDS1302Time(0, m, myRTC.hours, myRTC.dayofweek, myRTC.dayofmonth, myRTC.month, myRTC.year);
+        }
+        break;
+    }
+  }
+
+  // --- BOTÓN 4: DISPENSA MANUAL (Solo en pantalla principal) ---
+  if (digitalRead(btnManual) == LOW && modoMenu == 0) {
+    delay(200);
+    dispensarComida("Manual");
+  }
+
+  // --- COMPROBACIÓN DE RACIONES AUTOMÁTICAS ---
+  const char* nombresComida[3] = {"Desayuno", "Almuerzo", "Cena"};
+  for (int i = 0; i < 3; i++) {
+    if (myRTC.hours == horasComida[i] && myRTC.minutes == minsComida[i] && !servidoHoy[i]) {
+      dispensarComida(nombresComida[i]);
+      servidoHoy[i] = true;
+    }
+
+    // Resetea el flag al cambiar de minuto
+    if (myRTC.minutes != minsComida[i]) {
+      servidoHoy[i] = false;
+    }
+  }
+
+  // --- RENDERICO DE PANTALLA ---
+  if (modoMenu == 0) {
+    // Pantalla Principal: Hora Actual y resumen
+    lcd.setCursor(0, 0);
+    lcd.print("Hora: ");
+    imprimirDosDigitos(myRTC.hours);
+    lcd.print(":");
+    imprimirDosDigitos(myRTC.minutes);
+    lcd.print(":");
+    imprimirDosDigitos(myRTC.seconds);
+
+    lcd.setCursor(0, 1);
+    lcd.print("D:");
+    imprimirDosDigitos(horasComida[0]);
+    lcd.print(" A:");
+    imprimirDosDigitos(horasComida[1]);
+    lcd.print(" C:");
+    imprimirDosDigitos(horasComida[2]);
+
+  } else if (modoMenu == 1) {
+    lcd.setCursor(0, 0); lcd.print(" 1. Desayuno   ");
+    lcd.setCursor(0, 1); lcd.print("> Hora: "); imprimirDosDigitos(horasComida[0]); lcd.print(" h    ");
+  } else if (modoMenu == 2) {
+    lcd.setCursor(0, 0); lcd.print(" 1. Desayuno   ");
+    lcd.setCursor(0, 1); lcd.print("> Minuto: "); imprimirDosDigitos(minsComida[0]); lcd.print(" m  ");
+  } else if (modoMenu == 3) {
+    lcd.setCursor(0, 0); lcd.print(" 2. Almuerzo   ");
+    lcd.setCursor(0, 1); lcd.print("> Hora: "); imprimirDosDigitos(horasComida[1]); lcd.print(" h    ");
+  } else if (modoMenu == 4) {
+    lcd.setCursor(0, 0); lcd.print(" 2. Almuerzo   ");
+    lcd.setCursor(0, 1); lcd.print("> Minuto: "); imprimirDosDigitos(minsComida[1]); lcd.print(" m  ");
+  } else if (modoMenu == 5) {
+    lcd.setCursor(0, 0); lcd.print(" 3. Cena       ");
+    lcd.setCursor(0, 1); lcd.print("> Hora: "); imprimirDosDigitos(horasComida[2]); lcd.print(" h    ");
+  } else if (modoMenu == 6) {
+    lcd.setCursor(0, 0); lcd.print(" 3. Cena       ");
+    lcd.setCursor(0, 1); lcd.print("> Minuto: "); imprimirDosDigitos(minsComida[2]); lcd.print(" m  ");
+  } else if (modoMenu == 7) {
+    lcd.setCursor(0, 0); lcd.print(" Config. Reloj ");
+    lcd.setCursor(0, 1); lcd.print("> Hora Real: "); imprimirDosDigitos(myRTC.hours); lcd.print(" h");
+  } else if (modoMenu == 8) {
+    lcd.setCursor(0, 0); lcd.print(" Config. Reloj ");
+    lcd.setCursor(0, 1); lcd.print("> Min Real: "); imprimirDosDigitos(myRTC.minutes); lcd.print(" m ");
+  }
+
+  delay(50);
+}
